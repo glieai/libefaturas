@@ -1,16 +1,17 @@
-# efatura-auth
+# libefaturas
 
-Biblioteca em Python para construir o cabeçalho de autenticação (WS-Security UsernameToken) dos webservices da AT (e-Fatura, etc.), de acordo com os manuais públicos da Autoridade Tributária.
+Biblioteca em Python para integração com os webservices da AT relacionados com o e-Fatura:
 
-Esta biblioteca trata apenas da **autenticação a nível da mensagem** (UsernameToken):
-- gera a chave de sessão simétrica KS (128 bits, AES)
-- calcula:
-  - Nonce = Base64( RSA_KpubSA( KS ) )
-  - Password = Base64( AES-128-ECB PKCS5( SenhaPF ) )
-  - Created = Base64( AES-128-ECB PKCS5( Timestamp ISO 8601 UTC ) )
-- gera o fragmento XML do SOAP Header com o UsernameToken
+- geração do cabeçalho de autenticação (WS-Security UsernameToken)  
+- teste de ligação (TLS + UsernameToken) aos endpoints:
+  - e-Fatura (fews/faturas)
+  - Comunicação de Séries (SeriesWS)
 
-A parte de transporte (HTTPS/TLS com certificado cliente emitido pela AT) continua a ser tua responsabilidade.
+Foca-se em:
+
+- abstrair a parte chata da criptografia (KS, RSA, AES)  
+- dar um teste rápido de infraestrutura (certificados, credenciais, endpoints)  
+- servir de base para camadas de alto nível (registo de séries, faturas, etc.)
 
 ---
 
@@ -18,13 +19,19 @@ A parte de transporte (HTTPS/TLS com certificado cliente emitido pela AT) contin
 
 Usa esta lib quando:
 
-- precisas comunicar com o e-Fatura (ou outros webservices AT que usam o mesmo esquema de UsernameToken)
+- queres integrar com:
+  - webservice de comunicação de faturas (FatcoreWS)  
+  - webservice de comunicação de séries (SeriesWS)  
 - já tens:
-  - certificado cliente emitido pela AT (produtor de software)
-  - chave pública / certificado do Sistema de Autenticação (fornecido pela AT)
-  - credenciais de Portal das Finanças (NIF/subutilizador + password)
+  - certificado de produtor de software emitido pela AT (cliente TLS)  
+  - chave pública / certificado do Sistema de Autenticação (ficheiro .cer/.pem da AT)  
+  - credenciais do Portal das Finanças (NIF/subutilizador + password) com permissões WSE
 
-Ela resolve apenas a parte chata da criptografia do UsernameToken.
+A biblioteca resolve:
+
+- construção do UsernameToken  
+- montagem do SOAP Header com WS-Security  
+- teste de ligação aos endpoints da AT (produção / homologação), sem precisares de escrever SOAP à mão.
 
 ---
 
@@ -32,19 +39,18 @@ Ela resolve apenas a parte chata da criptografia do UsernameToken.
 
 - Python 3.9 ou superior  
 - cryptography  
-- requests (apenas necessário para o comando de teste de ligação)
+- requests
 
-Instalação típica:
+Instalação típica das dependências no ambiente onde vais usar a lib:
 
-```bash
+```
 pip install cryptography requests
 ```
 
 Se estiveres a usar o repositório diretamente:
 
-- garante que a pasta efatura_auth/ está no teu PYTHONPATH ou instalas com:
-
-```bash
+```
+cd /caminho/para/libefaturas
 pip install -e .
 ```
 
@@ -52,57 +58,68 @@ pip install -e .
 
 ## 3. Estrutura do package
 
-- efatura_auth/
-  - __init__.py  → API pública (o que importas)
-  - _core.py     → implementação da criptografia / UsernameToken
-  - __main__.py  → CLI de teste de ligação (python -m efatura_auth)
-- README.md      → este ficheiro (como usar a lib)
-- DOCUMENTATION.md → documentação técnica detalhada
+- libefaturas/
+  - __init__.py  
+    - API pública (o que importas)
+  - _core.py  
+    - implementação da criptografia / UsernameToken
+  - __main__.py  
+    - CLI de teste de ligação (`python -m libefaturas`)
+- README.md  
+  - este ficheiro (como usar a lib)
+- DOCUMENTATION.md  
+  - documentação técnica (modelo de autenticação + arquitetura interna)
 
 ---
 
-## 4. Quickstart
+## 4. API principal
 
-### 4.1. Preparar credenciais e chave pública AT
+### 4.1. EFaturaCredentials
 
-```python
-from efatura_auth import EFaturaCredentials
+Representa as credenciais do Portal das Finanças (utilizador/subutilizador):
+
+```
+from libefaturas import EFaturaCredentials
 
 creds = EFaturaCredentials(
     username="599999993/37",      # NIF/subutilizador
     password="SENHA_PORTAL",      # senha do Portal das Finanças
 )
-
-with open("at_auth_public.pem", "rb") as f:
-    at_public_pem = f.read()
 ```
 
-### 4.2. Construir o UsernameToken
+### 4.2. build_username_token
 
-```python
-from efatura_auth import build_username_token
+Gera o UsernameToken (Password cifrada, Nonce, Created) a partir das credenciais e da chave pública da AT:
+
+```
+from libefaturas import build_username_token
+
+with open("certs/at_public_key.cer", "rb") as f:
+    at_public = f.read()
 
 token = build_username_token(
     creds=creds,
-    public_key_pem=at_public_pem,
+    public_key_pem=at_public,
 )
 
 print(token.username)  # "599999993/37"
 print(token.password)  # Base64(AES_KS(SenhaPF))
 print(token.nonce)     # Base64(RSA_KpubSA(KS))
-print(token.created)   # Base64(AES_KS(Timestamp ISO))
+print(token.created)   # Base64(AES_KS(TimestampISO))
 ```
 
-### 4.3. Gerar o SOAP Header
+### 4.3. build_security_header_xml
 
-```python
-from efatura_auth import build_security_header_xml
+Gera o fragmento XML do SOAP Header com WS-Security, pronto a injetar no envelope SOAP:
+
+```
+from libefaturas import build_security_header_xml
 
 header_xml = build_security_header_xml(token)
 print(header_xml)
 ```
 
-Forma geral da saída:
+Forma geral:
 
 - `<S:Header>`
   - `<wss:Security ...>`
@@ -115,114 +132,145 @@ Forma geral da saída:
   - `</wss:Security>`
 - `</S:Header>`
 
-Este fragmento deve ser colocado no SOAP Header em todas as chamadas ao webservice da AT.
-
 ---
 
-## 5. Teste de ligação (handshake end-to-end)
+## 5. Teste de ligação (e-Fatura e Séries)
 
-O package inclui um comando de linha que:
+A biblioteca expõe um método de alto nível `test_connection` e um CLI (`python -m libefaturas`) para validar rapidamente:
 
-- lê a chave pública/certificado da AT em PEM
-- gera o UsernameToken (Password, Nonce, Created)
-- faz um POST SOAP mínimo para o endpoint indicado
-- usa o teu certificado cliente para o handshake TLS
+- se a chave pública da AT é válida  
+- se o UsernameToken é gerado sem erro  
+- se o certificado cliente é aceite (TLS ok)  
+- se o endpoint responde (mesmo com SOAP Fault)
 
-### 5.1. Exemplo de execução
+### 5.1. Via Python (programático)
 
-```bash
-python -m efatura_auth \
+```
+from libefaturas import test_connection
+
+result = test_connection(
+    username="599999993/37",
+    password="SENHA_PORTAL",
+    public_key_path="certs/at_public_key.cer",
+    endpoint="https://servicos.portaldasfinancas.gov.pt:400/fews/faturas",
+    client_cert_path="certs/producer.crt.pem",
+    client_key_path="certs/app-wfa-4096.key",
+    service="faturas",  # ou "series"
+)
+
+print(result)
+```
+
+O dicionário `result` contém:
+
+- username_token_ok: se o header foi gerado sem erro  
+- tls_ok: se o TLS/HTTP funcionou (sem erro de handshake, etc.)  
+- http_status: código HTTP devolvido  
+- soap_fault_code / soap_fault_string: se a resposta for um SOAP Fault  
+- raw_response_snippet: primeiros bytes do corpo de resposta (para debug)  
+- error: mensagem de erro em caso de falha de geração de token ou de TLS/HTTP
+
+### 5.2. Via CLI (linha de comandos)
+
+#### 5.2.1. Testar e-Fatura (fews/faturas)
+
+```
+python -m libefaturas \
+  --service faturas \
   --username 599999993/37 \
-  --public-key caminho/para/at_auth_public.pem \
-  --client-cert caminho/para/cert_cliente.pem \
-  --client-key caminho/para/chave_privada.pem \
+  --public-key certs/at_public_key.cer \
+  --client-cert certs/producer.crt.pem \
+  --client-key certs/app-wfa-4096.key \
   --endpoint https://servicos.portaldasfinancas.gov.pt:400/fews/faturas
 ```
 
-Notas:
-
-- se não passares `--password`, a senha é pedida no terminal (sem eco)
-- se tiveres um único PEM com certificado + chave, usa só `--client-cert` e omite `--client-key`
-- podes usar `--ca-cert` para um bundle de CAs específico; se não passares, é usado o default do sistema
-
 Saída típica:
 
-- HTTP status code  
-- headers de resposta  
-- primeiros bytes do corpo (normalmente um SOAP Fault – suficiente para validar handshake + autenticação de transporte)
+- [1] UsernameToken: OK  
+- [2] TLS/HTTP: OK  
+- [3] HTTP status: 500  
+- [4] SOAP Fault detectado (porque o Body é dummy)
 
-Se a chamada não rebentar com erro de TLS/HTTP, a infra está alinhada:
-- certificado cliente válido
-- endpoint acessível
-- geração do UsernameToken OK
+O objetivo aqui é só validar infraestrutura (certificados + header).
+
+#### 5.2.2. Testar Comunicação de Séries (SeriesWS)
+
+```
+python -m libefaturas \
+  --service series \
+  --username 599999993/37 \
+  --public-key certs/at_public_key.cer \
+  --client-cert certs/producer.crt.pem \
+  --client-key certs/app-wfa-4096.key \
+  --endpoint https://servicos.portaldasfinancas.gov.pt:422/SeriesWSService
+```
+
+Neste modo:
+
+- o Body é um `consultarSeries` real, sem filtros  
+- se credenciais e WSE estiverem corretos, deves obter:
+  - HTTP 200
+  - um `consultarSeriesResponse` com as séries registadas (incluindo codValidacaoSerie, estado, etc.)
+
+Este é o primeiro “teste real” de negócio recomendado para validar:
+
+- UsernameToken  
+- certificado cliente  
+- permissões do utilizador/subutilizador WSE  
+- ativação do serviço de séries para o NIF em causa.
 
 ---
 
-## 6. Integração com cliente SOAP/HTTP
+## 6. Visão geral das operações suportadas pela AT
 
-Fluxo típico:
+A lib, por enquanto, trata apenas de autenticação + teste de ligação. As operações de negócio vão ser construídas em cima disto.
 
-1) Configuras o teu cliente:
+### 6.1. Webservice de Séries (SeriesWS)
 
-- `requests`, `httpx`, `zeep`, etc.
-- defines cert=(cert_cliente, chave_privada) ou equivalente
-- defines o endpoint (ex.: produção e-Fatura: `https://servicos.portaldasfinancas.gov.pt:400/fews/faturas`)
+Operações existentes no WSDL:
 
-2) Geras o UsernameToken:
+- registarSerie  
+  - cria / comunica uma nova série à AT  
+  - devolve, entre outras coisas, o codValidacaoSerie que entra no ATCUD
 
-- `token = build_username_token(creds, at_public_pem)`
+- finalizarSerie  
+  - fecha uma série já utilizada  
+  - indicas o último número emitido e um motivo
 
-3) Geras o SOAP Header:
+- consultarSeries  
+  - consulta séries existentes, com filtros (serie, tipo, estado, datas, etc.)  
+  - usada na lib como primeira chamada real de teste
 
-- `header_xml = build_security_header_xml(token)`
+- anularSerie  
+  - anula a comunicação de uma série (caso de erro ou série nunca usada)  
+  - obriga a declaração explícita de que não houve emissão de documentos nessa série
 
-4) Montas o envelope SOAP completo (Header + Body) e envias.
+### 6.2. Webservice de Faturas (FatcoreWS)
 
-Exemplo minimalista de POST com `requests`:
+Operações definidas no WSDL de faturas:
 
-```python
-import requests
-from efatura_auth import (
-    EFaturaCredentials,
-    build_username_token,
-    build_security_header_xml,
-)
+- RegisterInvoice / ChangeInvoiceStatus / DeleteInvoice  
+- RegisterWork / ChangeWorkStatus / DeleteWork  
+- RegisterPayment / ChangePaymentStatus / DeletePayment
 
-creds = EFaturaCredentials(username="599999993/37", password="SENHA_PORTAL")
+Notas:
 
-with open("at_auth_public.pem", "rb") as f:
-    at_public_pem = f.read()
+- Register* usam estruturas complexas (InvoiceDataType, WorkDataType, PaymentDataType) com linhas, totais, impostos, etc.  
+- DeleteInvoice com dateRange tem o payload estruturalmente mais simples, mas é funcionalmente agressivo (pode apagar um conjunto de documentos).  
+- A operação base que faz sentido como primeiro passo real é RegisterInvoice com:
+  - 1 fatura  
+  - 1 linha  
+  - série já comunicada (SeriesWS)  
+  - ATCUD consistente
 
-token = build_username_token(creds, at_public_pem)
-header_xml = build_security_header_xml(token)
-
-envelope = (
-    '<?xml version="1.0" encoding="UTF-8"?>'
-    '<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">'
-    f"{header_xml}"
-    "<S:Body>"
-    # aqui entra o body SOAP real (envio de faturas, etc.)
-    "</S:Body>"
-    "</S:Envelope>"
-)
-
-response = requests.post(
-    "https://servicos.portaldasfinancas.gov.pt:400/fews/faturas",
-    data=envelope.encode("utf-8"),
-    headers={"Content-Type": "text/xml; charset=utf-8"},
-    cert=("cert_cliente.pem", "chave_privada.pem"),
-    timeout=30,
-)
-
-print(response.status_code)
-print(response.text[:1000])
-```
+As camadas de alto nível da libefaturas para estas operações irão usar exatamente o mesmo mecanismo de autenticação descrito aqui.
 
 ---
 
 ## 7. Avisos
 
 - A implementação segue o modelo público da AT (UsernameToken com KS, RSA e AES).  
-- Continua a ser obrigatório validar em ambiente oficial de testes/homologação que:
-  - o header é aceite sem erros de autenticação
-  - o relógio do servidor está corretamente sincronizado (campo Created em UTC)
+- É obrigatório validar em ambiente de testes/homologação:
+  - aceitação do header e das operações reais  
+  - sincronização de relógios (campo Created em UTC)  
+  - configuração correta de utilizadores/subutilizadores e permissões WSE no Portal das Finanças.

@@ -7,17 +7,11 @@ Permite verificar rapidamente:
 - se o endpoint HTTPS aceita o certificado cliente (handshake TLS)
 """
 
-from pathlib import Path
 import argparse
 import getpass
+import sys
 
-import requests
-
-from . import (
-    EFaturaCredentials,
-    build_username_token,
-    build_security_header_xml,
-)
+from . import test_connection
 
 
 def main() -> None:
@@ -62,53 +56,54 @@ def main() -> None:
             "(ex.: https://servicos.portaldasfinancas.gov.pt:400/fews/faturas)."
         ),
     )
+    parser.add_argument(
+        "--service",
+        choices=["faturas", "series"],
+        default="faturas",
+        help="Tipo de serviço a testar: 'faturas' ou 'series'.",
+    )
 
     args = parser.parse_args()
 
     password = args.password or getpass.getpass("Senha do Portal das Finanças: ")
 
-    creds = EFaturaCredentials(username=args.username, password=password)
-    public_pem = Path(args.public_key).read_bytes()
-
-    # 1) gerar UsernameToken (valida já toda a parte criptográfica)
-    token = build_username_token(creds, public_pem)
-    header_xml = build_security_header_xml(token)
-
-    # 2) envelope SOAP mínimo (body dummy; objetivo é só handshake + auth de transporte)
-    envelope = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">'
-        f"{header_xml}"
-        "<S:Body>"
-        '<ef:ConnectionTest xmlns:ef="urn:efatura-auth-test">ok</ef:ConnectionTest>'
-        "</S:Body>"
-        "</S:Envelope>"
+    result = test_connection(
+        username=args.username,
+        password=password,
+        public_key_path=args.public_key,
+        endpoint=args.endpoint,
+        client_cert_path=args.client_cert,
+        client_key_path=args.client_key,
+        ca_cert_path=args.ca_cert,
+        service=args.service,
     )
 
-    # 3) certificado cliente
-    if args.client_key:
-        cert = (args.client_cert, args.client_key)
+    print("[1] UsernameToken:", "OK" if result["username_token_ok"] else "FALHOU")
+    print("[2] TLS/HTTP:", "OK" if result["tls_ok"] else "FALHOU")
+
+    if result["http_status"] is not None:
+        print(f"[3] HTTP status: {result['http_status']}")
+
+    if result["soap_fault_code"] or result["soap_fault_string"]:
+        print("[4] SOAP Fault detectado:")
+        if result["soap_fault_code"]:
+            print(f"    faultcode: {result['soap_fault_code']}")
+        if result["soap_fault_string"]:
+            print(f"    faultstring: {result['soap_fault_string']}")
     else:
-        cert = args.client_cert
+        print("[4] SOAP Fault: nenhum Fault detetado (para o body enviado)")
 
-    verify = args.ca_cert if args.ca_cert else True
+    if result["error"]:
+        print(f"[ERRO] {result['error']}")
 
-    response = requests.post(
-        args.endpoint,
-        data=envelope.encode("utf-8"),
-        headers={"Content-Type": "text/xml; charset=utf-8"},
-        cert=cert,
-        verify=verify,
-        timeout=30,
-    )
+    if result["raw_response_snippet"]:
+        print("\n[RAW RESPONSE - primeiros 1000 bytes]")
+        print(result["raw_response_snippet"])
 
-    print(f"HTTP status: {response.status_code}")
-    print("Response headers:")
-    for k, v in response.headers.items():
-        print(f"  {k}: {v}")
-
-    print("\nPrimeiros 1000 bytes da resposta:")
-    print(response.text[:1000])
+    # exit code simples: 0 se UsernameToken + TLS OK, 1 caso contrário
+    if result["username_token_ok"] and result["tls_ok"]:
+        sys.exit(0)
+    sys.exit(1)
 
 
 if __name__ == "__main__":
