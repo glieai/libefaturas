@@ -61,10 +61,14 @@ pip install -e .
 - libefaturas/
   - __init__.py  
     - API pública (o que importas)
-  - _core.py  
+  - security.py  
     - implementação da criptografia / UsernameToken
+  - client.py  
+    - helpers de ligação e diagnósticos
+  - cli.py  
+    - implementação da CLI e parsing de argumentos
   - __main__.py  
-    - CLI de teste de ligação (`python -m libefaturas`)
+    - simples entrypoint para `python -m libefaturas`
 - README.md  
   - este ficheiro (como usar a lib)
 - DOCUMENTATION.md  

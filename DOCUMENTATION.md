@@ -128,19 +128,19 @@ A senha real do utilizador nunca é enviada em claro; apenas os resultados cifra
       - build_security_header_xml(...)  
       - test_connection(...)  
       - funções auxiliares de baixo nível (encrypt_*)
-  - _core.py  
+  - security.py  
     - implementação da parte criptográfica:
       - geração da KS (os.urandom(16))  
       - AES-128-ECB + PKCS5/PKCS7  
       - leitura da chave pública RSA a partir de .cer/.pem  
       - construção do UsernameToken  
       - construção do SOAP Header
+  - client.py  
+    - `test_connection` e futuros clientes HTTP/SOAP
+  - cli.py  
+    - CLI (argumentos, pedido de password, checklist)
   - __main__.py  
-    - CLI (python -m libefaturas):
-      - parse de argumentos  
-      - pedido da password se não for fornecida  
-      - invocação de test_connection(...)  
-      - output em modo “checklist”
+    - entrypoint fino (`python -m libefaturas` chama `cli.main`)
 
 - README.md  
   - guia de utilização para devs consumidores  
@@ -359,7 +359,7 @@ As futuras camadas de alto nível da libefaturas para estas operações vão con
 ## 6. Relação entre documentação AT e a biblioteca
 
 - A secção 1 deste documento espelha o modelo definido nos manuais oficiais (dois níveis de segurança, UsernameToken com KS, RSA e AES).  
-- _core.py implementa esse modelo com as funções encrypt_* e build_username_token.  
+- security.py implementa esse modelo com as funções encrypt_* e build_username_token.  
 - build_security_header_xml traduz o modelo em XML SOAP.  
 - test_connection e o CLI são ferramentas de diagnóstico:
   - e-Fatura → valida handshake e headers com um Body neutro  
