@@ -6,8 +6,6 @@ Biblioteca Python para consumir os webservices oficiais da AT (e-Fatura / Series
 - comunicar séries (SeriesWS)
 - comunicar faturas, trabalhos e pagamentos (FatcoreWS)
 
-> Nota: todo o conteúdo de documentação encontra-se neste README. Não existe mais um `DOCUMENTATION.md` separado.
-
 ---
 
 ## Instalação rápida
