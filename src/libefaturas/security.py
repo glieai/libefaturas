@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import padding as sym_padding
 
 
 @dataclass
-class EFaturaCredentials:
+class EFaturasCredentials:
     """
     Credenciais do utilizador/subutilizador do Portal das Finanças.
 
@@ -163,7 +163,7 @@ def build_created_timestamp(dt: Optional[datetime] = None) -> str:
 
 
 def build_username_token(
-    creds: EFaturaCredentials,
+    creds: EFaturasCredentials,
     public_key_pem: str | bytes,
     dt: Optional[datetime] = None,
 ) -> UsernameToken:

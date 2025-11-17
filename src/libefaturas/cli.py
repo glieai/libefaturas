@@ -46,11 +46,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--env",
+        choices=["test", "prod"],
+        default="test",
+        help="Ambiente da AT: 'test' ou 'prod' (por omissão, 'test').",
+    )
+    parser.add_argument(
         "--endpoint",
-        required=True,
         help=(
-            "URL do endpoint SOAP da AT "
-            "(ex.: https://servicos.portaldasfinancas.gov.pt:400/fews/faturas)."
+            "Override manual do endpoint SOAP da AT. "
+            "Se omitido, é usado o endpoint padrão para o ambiente/serviço."
         ),
     )
     parser.add_argument(
@@ -72,10 +77,11 @@ def main(argv: list[str] | None = None) -> None:
         username=args.username,
         password=password,
         public_key_path=args.public_key,
-        endpoint=args.endpoint,
         client_cert_path=args.client_cert,
         client_key_path=args.client_key,
         ca_cert_path=args.ca_cert,
+        environment=args.env,
+        endpoint=args.endpoint,
         service=args.service,
     )
 

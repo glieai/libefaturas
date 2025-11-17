@@ -3,7 +3,7 @@
 from .__about__ import __version__
 from .client import test_connection
 from .security import (
-    EFaturaCredentials,
+    EFaturasCredentials,
     UsernameToken,
     build_created_timestamp,
     build_security_header_xml,
@@ -14,7 +14,7 @@ from .security import (
 )
 
 __all__ = [
-    "EFaturaCredentials",
+    "EFaturasCredentials",
     "UsernameToken",
     "encrypt_password",
     "encrypt_created",

@@ -8,14 +8,86 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from .config import ENDPOINTS, Environment
 from .security import (
-    EFaturaCredentials,
+    EFaturasCredentials,
     build_security_header_xml,
     build_username_token,
 )
 
 
-__all__ = ["test_connection"]
+__all__ = ["EFaturasClient", "test_connection"]
+
+
+class EFaturasClient:
+    def __init__(
+        self,
+        *,
+        username: str,
+        password: str,
+        public_key_path: str,
+        client_cert_path: str,
+        client_key_path: Optional[str] = None,
+        ca_cert_path: Optional[str] = None,
+        environment: str = "test",
+        timeout: int = 30,
+    ) -> None:
+        self.username = username
+        self.password = password
+        self.public_key_path = public_key_path
+        self.client_cert_path = client_cert_path
+        self.client_key_path = client_key_path
+        self.ca_cert_path = ca_cert_path
+        self.timeout = timeout
+        self.environment = Environment(environment.lower())
+
+        creds = EFaturasCredentials(username=username, password=password)
+        public_pem = Path(public_key_path).read_bytes()
+        token = build_username_token(creds, public_pem)
+        self._security_header_xml = build_security_header_xml(token)
+
+    def _resolve_endpoint(self, service: str, endpoint: Optional[str]) -> str:
+        service_norm = (service or "faturas").lower()
+        if endpoint:
+            return endpoint
+        endpoints = ENDPOINTS[self.environment]
+        if service_norm == "series":
+            return endpoints.series
+        return endpoints.faturas
+
+    def post(
+        self,
+        *,
+        service: str,
+        body_xml: str,
+        endpoint: Optional[str] = None,
+    ) -> requests.Response:
+        envelope = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">'
+            f"{self._security_header_xml}"
+            f"{body_xml}"
+            "</S:Envelope>"
+        )
+
+        if self.client_key_path:
+            cert = (self.client_cert_path, self.client_key_path)
+        else:
+            cert = self.client_cert_path
+
+        verify = self.ca_cert_path if self.ca_cert_path else True
+
+        effective_endpoint = self._resolve_endpoint(service, endpoint)
+
+        response = requests.post(
+            effective_endpoint,
+            data=envelope.encode("utf-8"),
+            headers={"Content-Type": "text/xml; charset=utf-8"},
+            cert=cert,
+            verify=verify,
+            timeout=self.timeout,
+        )
+        return response
 
 
 def test_connection(
@@ -23,8 +95,9 @@ def test_connection(
     username: str,
     password: str,
     public_key_path: str,
-    endpoint: str,
     client_cert_path: str,
+    endpoint: Optional[str] = None,
+    environment: str = "test",
     client_key_path: Optional[str] = None,
     ca_cert_path: Optional[str] = None,
     timeout: int = 30,
@@ -42,10 +115,16 @@ def test_connection(
     }
 
     try:
-        creds = EFaturaCredentials(username=username, password=password)
-        public_pem = Path(public_key_path).read_bytes()
-        token = build_username_token(creds, public_pem)
-        header_xml = build_security_header_xml(token)
+        client = EFaturasClient(
+            username=username,
+            password=password,
+            public_key_path=public_key_path,
+            client_cert_path=client_cert_path,
+            client_key_path=client_key_path,
+            ca_cert_path=ca_cert_path,
+            environment=environment,
+            timeout=timeout,
+        )
         result["username_token_ok"] = True
     except Exception as exc:  # noqa: BLE001
         result["error"] = f"Erro ao gerar UsernameToken: {exc!r}"
@@ -66,29 +145,11 @@ def test_connection(
             "</S:Body>"
         )
 
-    envelope = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">'
-        f"{header_xml}"
-        f"{body_xml}"
-        "</S:Envelope>"
-    )
-
-    if client_key_path:
-        cert = (client_cert_path, client_key_path)
-    else:
-        cert = client_cert_path
-
-    verify = ca_cert_path if ca_cert_path else True
-
     try:
-        response = requests.post(
-            endpoint,
-            data=envelope.encode("utf-8"),
-            headers={"Content-Type": "text/xml; charset=utf-8"},
-            cert=cert,
-            verify=verify,
-            timeout=timeout,
+        response = client.post(
+            service=service_norm,
+            body_xml=body_xml,
+            endpoint=endpoint,
         )
         result["tls_ok"] = True
         result["http_status"] = response.status_code

@@ -122,7 +122,7 @@ A senha real do utilizador nunca é enviada em claro; apenas os resultados cifra
 - libefaturas/
   - __init__.py  
     - API pública:
-      - EFaturaCredentials  
+      - EFaturasCredentials  
       - UsernameToken  
       - build_username_token(...)  
       - build_security_header_xml(...)  
@@ -151,7 +151,7 @@ A senha real do utilizador nunca é enviada em claro; apenas os resultados cifra
 
 ### 2.2. Classes e funções principais
 
-#### EFaturaCredentials
+#### EFaturasCredentials
 
 Representa credenciais do Portal das Finanças:
 
@@ -159,9 +159,9 @@ Representa credenciais do Portal das Finanças:
 - password: senha do Portal
 
 [INICIO CODE BLOCK PYTHON]
-from libefaturas import EFaturaCredentials
+from libefaturas import EFaturasCredentials
 
-creds = EFaturaCredentials(
+creds = EFaturasCredentials(
     username="599999993/37",
     password="SENHA_PORTAL",
 )

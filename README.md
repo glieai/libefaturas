@@ -78,14 +78,14 @@ pip install -e .
 
 ## 4. API principal
 
-### 4.1. EFaturaCredentials
+### 4.1. EFaturasCredentials
 
 Representa as credenciais do Portal das Finanças (utilizador/subutilizador):
 
 ```
-from libefaturas import EFaturaCredentials
+from libefaturas import EFaturasCredentials
 
-creds = EFaturaCredentials(
+creds = EFaturasCredentials(
     username="599999993/37",      # NIF/subutilizador
     password="SENHA_PORTAL",      # senha do Portal das Finanças
 )

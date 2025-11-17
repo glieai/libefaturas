@@ -1,3 +1,4 @@
 *.pyc
 .venv/
 libefaturas.egg-info/
+__pycache__/
