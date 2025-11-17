@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "libefaturas"
+version = "0.1.0"
 description = "Biblioteca para uso do serviço e-fatura da Autoridade Tributária Portuguesa"
 readme = "README.md"
 authors = [
@@ -11,7 +12,6 @@ authors = [
 ]
 license = { text = "MIT" }
 requires-python = ">=3.9"
-dynamic = ["version"]
 dependencies = [
   "cryptography>=42.0.0",
   "requests>=2.31.0"
@@ -20,6 +20,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/glieai/libefaturas"
 Repository = "https://github.com/glieai/libefaturas"
+
 [project.scripts]
 libefaturas-cli = "libefaturas.cli:main"
 
@@ -29,6 +30,3 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["libefaturas*"]
-
-[tool.setuptools.dynamic]
-version = { attr = "libefaturas.__about__.__version__" }
