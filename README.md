@@ -1,280 +1,230 @@
 # libefaturas
 
-Biblioteca em Python para integração com os webservices da AT relacionados com o e-Fatura:
+Biblioteca Python para consumir os webservices oficiais da AT (e-Fatura / SeriesWS) sem ter de montar SOAP, WS-Security e certificados à mão. O foco é disponibilizar uma API simples para aplicações que precisem de:
 
-- geração do cabeçalho de autenticação (WS-Security UsernameToken)  
-- teste de ligação (TLS + UsernameToken) aos endpoints:
-  - e-Fatura (fews/faturas)
-  - Comunicação de Séries (SeriesWS)
+- gerar o cabeçalho WS-Security (UsernameToken)
+- comunicar séries (SeriesWS)
+- comunicar faturas, trabalhos e pagamentos (FatcoreWS)
 
-Foca-se em:
-
-- abstrair a parte chata da criptografia (KS, RSA, AES)  
-- dar um teste rápido de infraestrutura (certificados, credenciais, endpoints)  
-- servir de base para camadas de alto nível (registo de séries, faturas, etc.)
+> Nota: todo o conteúdo de documentação encontra-se neste README. Não existe mais um `DOCUMENTATION.md` separado.
 
 ---
 
-## 1. Quando usar esta biblioteca
+## Instalação rápida
 
-Usa esta lib quando:
+```bash
+pip install libefaturas
+```
 
-- queres integrar com:
-  - webservice de comunicação de faturas (FatcoreWS)  
-  - webservice de comunicação de séries (SeriesWS)  
-- já tens:
-  - certificado de produtor de software emitido pela AT (cliente TLS)  
-  - chave pública / certificado do Sistema de Autenticação (ficheiro .cer/.pem da AT)  
-  - credenciais do Portal das Finanças (NIF/subutilizador + password) com permissões WSE
+Requisitos mínimos:
 
-A biblioteca resolve:
-
-- construção do UsernameToken  
-- montagem do SOAP Header com WS-Security  
-- teste de ligação aos endpoints da AT (produção / homologação), sem precisares de escrever SOAP à mão.
+- Python 3.9+
+- certificado de produtor de software emitido pela AT (ficheiros `.crt/.pem` + chave privada)
+- credenciais de utilizador/subutilizador com permissões WSE
+- chave pública do Sistema de Autenticação (normalmente fornecida como `.cer`)
 
 ---
 
-## 2. Requisitos
+## 1. Criar o cliente base
 
-- Python 3.9 ou superior  
-- cryptography  
-- requests
+Todas as operações partem de `EFaturasClient`, que trata do UsernameToken, header WS-Security e chamada SOAP/TLS.
 
-Instalação típica das dependências no ambiente onde vais usar a lib:
+```python
+from libefaturas import EFaturasClient
 
-```
-pip install cryptography requests
-```
-
-Se estiveres a usar o repositório diretamente:
-
-```
-cd /caminho/para/libefaturas
-pip install -e .
-```
-
----
-
-## 3. Estrutura do package
-
-- libefaturas/
-  - __init__.py  
-    - API pública (o que importas)
-  - security.py  
-    - implementação da criptografia / UsernameToken
-  - client.py  
-    - helpers de ligação e diagnósticos
-  - cli.py  
-    - implementação da CLI e parsing de argumentos
-  - __main__.py  
-    - simples entrypoint para `python -m libefaturas`
-- README.md  
-  - este ficheiro (como usar a lib)
-- DOCUMENTATION.md  
-  - documentação técnica (modelo de autenticação + arquitetura interna)
-
----
-
-## 4. API principal
-
-### 4.1. EFaturasCredentials
-
-Representa as credenciais do Portal das Finanças (utilizador/subutilizador):
-
-```
-from libefaturas import EFaturasCredentials
-
-creds = EFaturasCredentials(
-    username="599999993/37",      # NIF/subutilizador
-    password="SENHA_PORTAL",      # senha do Portal das Finanças
+client = EFaturasClient(
+    username="599999993/37",                  # utilizador/subutilizador WSE
+    password="SENHA_PORTAL",
+    public_key_path="certs/at_public_key.cer",
+    client_cert_path="certs/software.crt.pem",
+    client_key_path="certs/software.key.pem",
+    ca_cert_path="certs/ca_at.pem",           # opcional (usa truststore do sistema se omitido)
+    environment="test",                       # ou "prod"
 )
 ```
 
-### 4.2. build_username_token
+Quando precisares de validar a infraestrutura antes de chamar operações reais, usa `test_connection`:
 
-Gera o UsernameToken (Password cifrada, Nonce, Created) a partir das credenciais e da chave pública da AT:
-
-```
-from libefaturas import build_username_token
-
-with open("certs/at_public_key.cer", "rb") as f:
-    at_public = f.read()
-
-token = build_username_token(
-    creds=creds,
-    public_key_pem=at_public,
-)
-
-print(token.username)  # "599999993/37"
-print(token.password)  # Base64(AES_KS(SenhaPF))
-print(token.nonce)     # Base64(RSA_KpubSA(KS))
-print(token.created)   # Base64(AES_KS(TimestampISO))
-```
-
-### 4.3. build_security_header_xml
-
-Gera o fragmento XML do SOAP Header com WS-Security, pronto a injetar no envelope SOAP:
-
-```
-from libefaturas import build_security_header_xml
-
-header_xml = build_security_header_xml(token)
-print(header_xml)
-```
-
-Forma geral:
-
-- `<S:Header>`
-  - `<wss:Security ...>`
-    - `<wss:UsernameToken>`
-      - `<wss:Username>...`
-      - `<wss:Password>...`
-      - `<wss:Nonce>...`
-      - `<wss:Created>...`
-    - `</wss:UsernameToken>`
-  - `</wss:Security>`
-- `</S:Header>`
-
----
-
-## 5. Teste de ligação (e-Fatura e Séries)
-
-A biblioteca expõe um método de alto nível `test_connection` e um CLI (`python -m libefaturas`) para validar rapidamente:
-
-- se a chave pública da AT é válida  
-- se o UsernameToken é gerado sem erro  
-- se o certificado cliente é aceite (TLS ok)  
-- se o endpoint responde (mesmo com SOAP Fault)
-
-### 5.1. Via Python (programático)
-
-```
+```python
 from libefaturas import test_connection
 
-result = test_connection(
+health = test_connection(
     username="599999993/37",
     password="SENHA_PORTAL",
     public_key_path="certs/at_public_key.cer",
-    endpoint="https://servicos.portaldasfinancas.gov.pt:400/fews/faturas",
-    client_cert_path="certs/producer.crt.pem",
-    client_key_path="certs/app-wfa-4096.key",
-    service="faturas",  # ou "series"
+    client_cert_path="certs/software.crt.pem",
+    client_key_path="certs/software.key.pem",
+    service="series",  # ou "faturas"
+)
+print(health)  # informa se o UsernameToken/TLS/endpoint estão OK
+```
+
+---
+
+## 2. Comunicação de séries (SeriesWS)
+
+```python
+from datetime import date
+from libefaturas import SeriesService
+from libefaturas.series import (
+    CreateSeriesInput,
+    FinalizeSeriesInput,
+    CancelSeriesInput,
+    SeriesFilter,
 )
 
-print(result)
+series = SeriesService(client)
+
+# Registar nova série
+resp = series.create_series(
+    CreateSeriesInput(
+        serie="A",
+        tipo_serie="N",                      # ex.: Normal
+        classe_doc="FT",                     # classe definida pela AT
+        tipo_doc="FT",                       # tipo de documento
+        num_inicial_seq=1,
+        data_inicio=date(2024, 1, 1),
+        num_cert_sw="9999",                  # certificado do software ou "0"
+        meio_processamento="E",              # ex.: eletrónico
+    )
+)
+assert resp.result.ok, resp.result.message
+print(resp.series.codigo_validacao)
+
+# Consultar séries existentes
+series_list = series.list_series(SeriesFilter(estado="A"))
+for serie in series_list.series:
+    print(serie.serie, serie.estado, serie.codigo_validacao)
+
+# Finalizar uma série
+final = series.close_series(
+    FinalizeSeriesInput(
+        serie="A",
+        classe_doc="FT",
+        tipo_doc="FT",
+        codigo_validacao="X1Y2Z3A4",
+        seq_ultimo_doc_emitido=120,
+        justificacao="Série substituída",
+    )
+)
+print(final.result.ok)
+
+# Anular uma série
+cancel = series.cancel_series(
+    CancelSeriesInput(
+        serie="B",
+        classe_doc="FT",
+        tipo_doc="FT",
+        codigo_validacao="Q1W2E3R4",
+        motivo="01",                         # códigos definidos pela AT
+        declaracao_nao_emissao=True,
+    )
+)
+print(cancel.result.message)
 ```
 
-O dicionário `result` contém:
+`SeriesService` devolve sempre `SeriesOperationResult` (para operações sobre uma única série) ou `SeriesListResult` com `OperationResult` indicando o sucesso (`result.ok`).
 
-- username_token_ok: se o header foi gerado sem erro  
-- tls_ok: se o TLS/HTTP funcionou (sem erro de handshake, etc.)  
-- http_status: código HTTP devolvido  
-- soap_fault_code / soap_fault_string: se a resposta for um SOAP Fault  
-- raw_response_snippet: primeiros bytes do corpo de resposta (para debug)  
-- error: mensagem de erro em caso de falha de geração de token ou de TLS/HTTP
+---
 
-### 5.2. Via CLI (linha de comandos)
+## 3. Comunicação de faturas, trabalhos e pagamentos (FatcoreWS)
 
-#### 5.2.1. Testar e-Fatura (fews/faturas)
+O serviço expõe nove operações (Register/Change/Delete para Invoice, Work e Payment). Cada uma recebe um dataclass que espelha o payload do WSDL.
 
+```python
+from datetime import date, datetime
+from libefaturas import FaturasService
+from libefaturas.faturas import ChannelInfo, RegisterInvoiceInput
+
+fatcore = FaturasService(client)
+
+invoice_payload = {
+    "InvoiceNo": "FT A/2024/1",
+    "ATCUD": "ATCUD-EXEMPLO",
+    "InvoiceDate": date(2024, 1, 15),
+    "InvoiceType": "FT",
+    "SelfBillingIndicator": 0,
+    "CustomerTaxID": "999999990",
+    "CustomerTaxIDCountry": "PT",
+    "DocumentStatus": {
+        "InvoiceStatus": "N",               # conforme Tabela 4.2. do WSDL
+        "InvoiceStatusDate": datetime.now(),
+    },
+    "HashCharacters": "XYZ123",
+    "CashVATSchemeIndicator": 0,
+    "PaperLessIndicator": 1,
+    "SystemEntryDate": datetime.now(),
+    "LineSummary": [
+        {
+            "TaxPointDate": date(2024, 1, 15),
+            "DebitCreditIndicator": "D",
+            "TotalTaxBase": "100.00",
+            "Tax": {
+                "TaxType": "IVA",
+                "TaxCountryRegion": "PT",
+                "TaxCode": "NOR",
+                "TaxPercentage": "23.00",
+            },
+        }
+    ],
+    "DocumentTotals": {
+        "TaxPayable": "23.00",
+        "NetTotal": "100.00",
+        "GrossTotal": "123.00",
+    },
+}
+
+response = fatcore.register_invoice(
+    RegisterInvoiceInput(
+        efatura_md_version="0.0.1",
+        audit_file_version="1.04_01",
+        tax_registration_number="599999993",
+        tax_entity="Global",
+        software_certificate_number=9999,
+        invoice_data=invoice_payload,
+        canal_registo=ChannelInfo(sistema="MinhaApp", versao="1.0.0"),
+    )
+)
+
+if not response.ok:
+    raise RuntimeError(response.mensagem)
+print("Fatura comunicada:", response.data_operacao)
 ```
-python -m libefaturas \
-  --service faturas \
-  --username 599999993/37 \
-  --public-key certs/at_public_key.cer \
-  --client-cert certs/producer.crt.pem \
-  --client-key certs/app-wfa-4096.key \
-  --endpoint https://servicos.portaldasfinancas.gov.pt:400/fews/faturas
-```
 
-Saída típica:
+Outros dataclasses (`ChangeInvoiceStatusInput`, `DeleteInvoiceInput`, `RegisterWorkInput`, etc.) seguem o mesmo padrão. Podes passar dicionários, dataclasses ou listas aninhadas e o `FaturasService` trata da serialização em XML literal conforme o WSDL.
 
-- [1] UsernameToken: OK  
-- [2] TLS/HTTP: OK  
-- [3] HTTP status: 500  
-- [4] SOAP Fault detectado (porque o Body é dummy)
+---
 
-O objetivo aqui é só validar infraestrutura (certificados + header).
+## 4. Testes e troubleshooting
 
-#### 5.2.2. Testar Comunicação de Séries (SeriesWS)
+- `test_connection(service="series")` ou `test_connection(service="faturas")` para validar certificados, UsernameToken e endpoint antes de chamar operações de negócio.
+- O `OperationResponse` devolvido pelas operações do FatcoreWS inclui `codigo_resposta`, `mensagem` e `data_operacao`. Se `codigo_resposta` for diferente de zero, a mensagem costuma explicar o erro (por exemplo série inexistente, ATCUD inválido, etc.).
+- As operações de séries devolvem `OperationResult` com o mesmo conceito de código/mensagem.
 
-```
+---
+
+## 5. CLI (opcional)
+
+Podes usar a CLI integrada para validar conectividade rapidamente:
+
+```bash
 python -m libefaturas \
   --service series \
   --username 599999993/37 \
+  --password SENHA_PORTAL \
   --public-key certs/at_public_key.cer \
-  --client-cert certs/producer.crt.pem \
-  --client-key certs/app-wfa-4096.key \
-  --endpoint https://servicos.portaldasfinancas.gov.pt:422/SeriesWSService
+  --client-cert certs/software.crt.pem \
+  --client-key certs/software.key.pem
 ```
 
-Neste modo:
-
-- o Body é um `consultarSeries` real, sem filtros  
-- se credenciais e WSE estiverem corretos, deves obter:
-  - HTTP 200
-  - um `consultarSeriesResponse` com as séries registadas (incluindo codValidacaoSerie, estado, etc.)
-
-Este é o primeiro “teste real” de negócio recomendado para validar:
-
-- UsernameToken  
-- certificado cliente  
-- permissões do utilizador/subutilizador WSE  
-- ativação do serviço de séries para o NIF em causa.
+O comando acima executa `consultarSeries` sem filtros e devolve um resumo do pedido/resposta.
 
 ---
 
-## 6. Visão geral das operações suportadas pela AT
+## 6. Referências
 
-A lib, por enquanto, trata apenas de autenticação + teste de ligação. As operações de negócio vão ser construídas em cima disto.
+- `libefaturas/src/libefaturas/wsdl/`: WSDLs oficiais usados como referência.
+- `libefaturas/security.py`: implementação da geração de UsernameToken (RSA + AES).
+- `libefaturas/client.py`: construção do envelope SOAP, cabeçalho WS-Security e chamada HTTP.
 
-### 6.1. Webservice de Séries (SeriesWS)
-
-Operações existentes no WSDL:
-
-- registarSerie  
-  - cria / comunica uma nova série à AT  
-  - devolve, entre outras coisas, o codValidacaoSerie que entra no ATCUD
-
-- finalizarSerie  
-  - fecha uma série já utilizada  
-  - indicas o último número emitido e um motivo
-
-- consultarSeries  
-  - consulta séries existentes, com filtros (serie, tipo, estado, datas, etc.)  
-  - usada na lib como primeira chamada real de teste
-
-- anularSerie  
-  - anula a comunicação de uma série (caso de erro ou série nunca usada)  
-  - obriga a declaração explícita de que não houve emissão de documentos nessa série
-
-### 6.2. Webservice de Faturas (FatcoreWS)
-
-Operações definidas no WSDL de faturas:
-
-- RegisterInvoice / ChangeInvoiceStatus / DeleteInvoice  
-- RegisterWork / ChangeWorkStatus / DeleteWork  
-- RegisterPayment / ChangePaymentStatus / DeletePayment
-
-Notas:
-
-- Register* usam estruturas complexas (InvoiceDataType, WorkDataType, PaymentDataType) com linhas, totais, impostos, etc.  
-- DeleteInvoice com dateRange tem o payload estruturalmente mais simples, mas é funcionalmente agressivo (pode apagar um conjunto de documentos).  
-- A operação base que faz sentido como primeiro passo real é RegisterInvoice com:
-  - 1 fatura  
-  - 1 linha  
-  - série já comunicada (SeriesWS)  
-  - ATCUD consistente
-
-As camadas de alto nível da libefaturas para estas operações irão usar exatamente o mesmo mecanismo de autenticação descrito aqui.
-
----
-
-## 7. Avisos
-
-- A implementação segue o modelo público da AT (UsernameToken com KS, RSA e AES).  
-- É obrigatório validar em ambiente de testes/homologação:
-  - aceitação do header e das operações reais  
-  - sincronização de relógios (campo Created em UTC)  
-  - configuração correta de utilizadores/subutilizadores e permissões WSE no Portal das Finanças.
+Se precisares de adaptar os payloads ao teu domínio basta importar os dataclasses diretamente de `libefaturas.series` ou `libefaturas.faturas`. Tudo o resto (helpers internos) é considerado detalhe de implementação.
