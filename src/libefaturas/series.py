@@ -215,12 +215,19 @@ class SeriesService:
             body_xml=body_xml,
             endpoint=self._endpoint_override,
         )
+        response_text = response.text
+        try:
+            element = self._extract_response_element(response_text, action)
+        except SeriesError as exc:
+            if response.status_code != 200:
+                raise SeriesError(f"{exc} (HTTP {response.status_code})") from exc
+            raise
         if response.status_code != 200:
-            snippet = response.text[:500]
+            snippet = response_text[:500]
             raise SeriesError(
                 f"HTTP {response.status_code} ao chamar {action}: {snippet}"
             )
-        return self._extract_response_element(response.text, action)
+        return element
 
     def _extract_response_element(self, xml: str, action: str) -> ET.Element:
         try:
