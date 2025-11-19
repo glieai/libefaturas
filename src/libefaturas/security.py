@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as sym_padding
+from cryptography.hazmat.primitives import hashes
 
 
 @dataclass
@@ -208,3 +209,74 @@ def build_security_header_xml(token: UsernameToken) -> str:
         "</wss:Security>"
         "</S:Header>"
     )
+
+
+def _load_rsa_private_key(
+    private_key_pem: bytes | str,
+    password: Optional[bytes] = None,
+) -> rsa.RSAPrivateKey:
+    """
+    Carrega uma chave privada RSA (formato PEM) a partir de:
+      - bytes PEM
+      - str PEM (será convertida para bytes UTF-8)
+
+    A chave privada é a que o programa de faturação usa para assinar
+    os documentos, sendo o par da chave pública declarada no Modelo 24.
+    """
+    if isinstance(private_key_pem, str):
+        private_key_pem = private_key_pem.encode("utf-8")
+
+    key = serialization.load_pem_private_key(
+        private_key_pem,
+        password=password,
+    )
+    if not isinstance(key, rsa.RSAPrivateKey):
+        raise TypeError("A chave privada não é RSA.")
+    return key
+
+
+def gerar_hash_fatura(
+    invoice_date: str,
+    system_entry_date: str,
+    invoice_no: str,
+    gross_total: str,
+    previous_hash: Optional[str],
+    private_key_pem: bytes | str,
+    password: Optional[bytes] = None,
+) -> str:
+    """
+    Gera o Hash (assinatura) de uma fatura segundo as Regras Técnicas da AT.
+
+    Campos (ordem e formatos conforme SAF-T (PT)):
+      - invoice_date      -> 4.1.4.6  InvoiceDate      (AAAA-MM-DD)
+      - system_entry_date -> 4.1.4.9  SystemEntryDate  (AAAA-MM-DDTHH:MM:SS)
+      - invoice_no        -> 4.1.4.1  InvoiceNo        (ex: "FT A/123")
+      - gross_total       -> 4.1.4.15.3 GrossTotal     (ex: "1200.00",
+                                                         ponto como separador decimal,
+                                                         sem separador de milhares)
+      - previous_hash     -> Hash do documento anterior da mesma série (4.1.4.3),
+                             "" / None se for o primeiro documento da série ou do exercício.
+
+    Texto a assinar (exactamente o que vai ao RSA+SHA1), em UTF-8, é:
+      "{InvoiceDate};{SystemEntryDate};{InvoiceNo};{GrossTotal};{PreviousHash}"
+
+    A assinatura é:
+      Base64( RSA_PKCS1_v1_5_SHA1( texto_a_assinar ) )
+
+    O valor devolvido deve ser gravado:
+      - na base de dados (campo Hash do documento)
+      - no SAF-T (campo 4.1.4.3 <Hash>)
+    """
+    prev = previous_hash or ""
+
+    message = f"{invoice_date};{system_entry_date};{invoice_no};{gross_total};{prev}"
+
+    private_key = _load_rsa_private_key(private_key_pem, password=password)
+
+    signature = private_key.sign(
+        message.encode("utf-8"),
+        asym_padding.PKCS1v15(),
+        hashes.SHA1(),
+    )
+
+    return base64.b64encode(signature).decode("ascii")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
 
@@ -95,10 +95,16 @@ class SeriesFilter:
 class OperationResult:
     code: Optional[int]
     message: str
+    # SeriesWS devolve 2xxx quando a operação é aceite, apesar do manual dizer 0.
+    _SUCCESS_CODES: ClassVar[set[int]] = {0}
 
     @property
     def ok(self) -> bool:
-        return self.code == 0
+        if self.code is None:
+            return False
+        if self.code in self._SUCCESS_CODES:
+            return True
+        return 2000 <= self.code < 3000
 
 
 @dataclass
