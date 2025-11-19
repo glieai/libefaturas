@@ -40,6 +40,7 @@ class EFaturasClient:
         self.ca_cert_path = ca_cert_path
         self.timeout = timeout
         self.environment = Environment(environment.lower())
+        self._last_request_xml: str | None = None
 
         creds = EFaturasCredentials(username=username, password=password)
         public_pem = Path(public_key_path).read_bytes()
@@ -63,6 +64,7 @@ class EFaturasClient:
         endpoint: Optional[str] = None,
     ) -> requests.Response:
         envelope = self.build_envelope_xml(body_xml)
+        self._last_request_xml = envelope
 
         if self.client_key_path:
             cert = (self.client_cert_path, self.client_key_path)
