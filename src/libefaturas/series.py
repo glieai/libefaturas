@@ -130,6 +130,7 @@ class SeriesService:
     ) -> None:
         self._client = client
         self._endpoint_override = endpoint
+        self._last_response_text: str | None = None
 
     # ---------- helpers internos ----------
 
@@ -215,7 +216,9 @@ class SeriesService:
             body_xml=body_xml,
             endpoint=self._endpoint_override,
         )
+        self._last_request_xml = body_xml
         response_text = response.text
+        self._last_response_text = response_text
         try:
             element = self._extract_response_element(response_text, action)
         except SeriesError as exc:
@@ -248,9 +251,48 @@ class SeriesService:
             )
         return element
 
+    @staticmethod
+    def _tag_matches(node: ET.Element, name: str) -> bool:
+        raw = node.tag or ""
+        if raw == name:
+            return True
+        if raw.endswith(f"}}{name}"):
+            return True
+        return False
+
+    def _find(self, parent: ET.Element, tag: str) -> Optional[ET.Element]:
+        node = parent.find(f"at:{tag}", self._NS)
+        if node is None:
+            node = parent.find(tag)
+        if node is None:
+            for child in parent:
+                if isinstance(child.tag, str) and self._tag_matches(child, tag):
+                    return child
+        return node
+
+    def _findall(self, parent: ET.Element, tag: str) -> list[ET.Element]:
+        nodes = parent.findall(f"at:{tag}", self._NS)
+        if not nodes:
+            nodes = parent.findall(tag)
+        if not nodes:
+            nodes = parent.findall(f".//at:{tag}", self._NS)
+        if not nodes:
+            nodes = parent.findall(f".//{tag}")
+        if not nodes:
+            nodes = [
+                child
+                for child in parent.iter()
+                if isinstance(child.tag, str) and self._tag_matches(child, tag)
+            ]
+        return nodes
+
+    def _findtext(self, parent: ET.Element, tag: str) -> Optional[str]:
+        node = self._find(parent, tag)
+        return node.text if node is not None else None
+
     def _parse_series(self, element: ET.Element) -> Series:
         def text(name: str) -> Optional[str]:
-            return element.findtext(f"at:{name}", default=None, namespaces=self._NS)
+            return self._findtext(element, name)
 
         num_inicial_seq = self._parse_int(text("numInicialSeq"))
         num_final_seq = self._parse_int(text("numFinalSeq"))
@@ -279,10 +321,8 @@ class SeriesService:
     def _parse_operation_result(self, element: Optional[ET.Element]) -> OperationResult:
         if element is None:
             return OperationResult(code=None, message="")
-        code = self._parse_int(
-            element.findtext("at:codResultOper", default=None, namespaces=self._NS)
-        )
-        message = element.findtext("at:msgResultOper", default="", namespaces=self._NS)
+        code = self._parse_int(self._findtext(element, "codResultOper"))
+        message = self._findtext(element, "msgResultOper") or ""
         return OperationResult(code=code, message=message)
 
     def _parse_series_operation(
@@ -290,29 +330,38 @@ class SeriesService:
         parent: ET.Element,
         child_tag: str,
     ) -> SeriesOperationResult:
-        container = parent.find(f"at:{child_tag}", self._NS)
+        container = self._find(parent, child_tag)
         if container is None:
             raise SeriesError(f"Elemento {child_tag} não encontrado na resposta SOAP.")
 
-        info_element = container.find("at:infoSerie", self._NS)
+        info_element = self._find(container, "infoSerie")
         series = self._parse_series(info_element) if info_element is not None else None
-        result = self._parse_operation_result(
-            container.find("at:infoResultOper", self._NS)
-        )
+        result = self._parse_operation_result(self._find(container, "infoResultOper"))
         return SeriesOperationResult(series=series, result=result)
 
     def _parse_series_list(self, parent: ET.Element) -> SeriesListResult:
-        container = parent.find("at:consultarSeriesResp", self._NS)
+        container = self._find(parent, "consultarSeriesResp")
         if container is None:
+            # fallback: já vimos respostas sem o nó wrapper, usar o parent
+            container = parent
+
+        series_nodes = self._findall(container, "infoSerie")
+        if not series_nodes and container is parent:
+            # último recurso: procurar globalmente
+            series_nodes = self._findall(parent, "infoSerie")
+            container_for_result = parent
+        else:
+            container_for_result = container
+
+        series = [self._parse_series(node) for node in series_nodes]
+        result_node = self._find(container_for_result, "infoResultOper")
+        if result_node is None:
+            result_node = self._find(parent, "infoResultOper")
+        result = self._parse_operation_result(result_node)
+        if not series and result.code is None:
             raise SeriesError(
                 "Elemento consultarSeriesResp não encontrado na resposta SOAP."
             )
-
-        series_nodes = container.findall("at:infoSerie", self._NS)
-        series = [self._parse_series(node) for node in series_nodes]
-        result = self._parse_operation_result(
-            container.find("at:infoResultOper", self._NS)
-        )
         return SeriesListResult(series=series, result=result)
 
     # ---------- API pública ----------
