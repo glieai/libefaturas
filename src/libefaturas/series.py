@@ -130,6 +130,7 @@ class SeriesService:
     ) -> None:
         self._client = client
         self._endpoint_override = endpoint
+        self._last_request_xml: str | None = None
         self._last_response_text: str | None = None
 
     # ---------- helpers internos ----------
@@ -211,12 +212,13 @@ class SeriesService:
         payload: list[tuple[str, Optional[str]]],
     ) -> ET.Element:
         body_xml = self._render_body(action, payload)
+        # Store the full envelope before the HTTP call so we can log it even if the request crashes.
+        self._last_request_xml = self._client.build_envelope_xml(body_xml)
         response = self._client.post(
             service="series",
             body_xml=body_xml,
             endpoint=self._endpoint_override,
         )
-        self._last_request_xml = self._client.build_envelope_xml(body_xml)
         response_text = response.text
         self._last_response_text = response_text
         try:
