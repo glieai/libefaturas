@@ -216,7 +216,7 @@ class SeriesService:
             body_xml=body_xml,
             endpoint=self._endpoint_override,
         )
-        self._last_request_xml = body_xml
+        self._last_request_xml = self._client.build_envelope_xml(body_xml)
         response_text = response.text
         self._last_response_text = response_text
         try:

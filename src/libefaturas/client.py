@@ -62,13 +62,7 @@ class EFaturasClient:
         body_xml: str,
         endpoint: Optional[str] = None,
     ) -> requests.Response:
-        envelope = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">'
-            f"{self._security_header_xml}"
-            f"{body_xml}"
-            "</S:Envelope>"
-        )
+        envelope = self.build_envelope_xml(body_xml)
 
         if self.client_key_path:
             cert = (self.client_cert_path, self.client_key_path)
@@ -88,6 +82,15 @@ class EFaturasClient:
             timeout=self.timeout,
         )
         return response
+
+    def build_envelope_xml(self, body_xml: str) -> str:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">'
+            f"{self._security_header_xml}"
+            f"{body_xml}"
+            "</S:Envelope>"
+        )
 
 
 def test_connection(
