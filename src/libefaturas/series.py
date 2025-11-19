@@ -133,6 +133,21 @@ class SeriesService:
         self._last_request_xml: str | None = None
         self._last_response_text: str | None = None
 
+    def _attach_last_exchange_to_exception(self, exc: SeriesError) -> SeriesError:
+        """Annotate an exception with the last SOAP request/response snippets."""
+        try:
+            if not getattr(exc, "last_request_xml", None):
+                exc.last_request_xml = self._last_request_xml or getattr(
+                    getattr(self, "_client", None),
+                    "_last_request_xml",
+                    None,
+                )
+            if not getattr(exc, "last_response_text", None):
+                exc.last_response_text = self._last_response_text
+        except Exception:  # noqa: BLE001
+            pass
+        return exc
+
     # ---------- helpers internos ----------
 
     @staticmethod
@@ -194,7 +209,7 @@ class SeriesService:
 
     def _render_body(self, action: str, payload: list[tuple[str, Optional[str]]]) -> str:
         inner = "".join(
-            f"<{tag}>{escape(value)}</{tag}>"
+            f'<{tag} xmlns="">{escape(value)}</{tag}>'
             for tag, value in payload
             if value is not None
         )
@@ -224,14 +239,19 @@ class SeriesService:
         try:
             element = self._extract_response_element(response_text, action)
         except SeriesError as exc:
+            exc = self._attach_last_exchange_to_exception(exc)
             if response.status_code != 200:
-                raise SeriesError(f"{exc} (HTTP {response.status_code})") from exc
-            raise
+                new_exc = SeriesError(f"{exc} (HTTP {response.status_code})")
+                self._attach_last_exchange_to_exception(new_exc)
+                raise new_exc from exc
+            raise exc
         if response.status_code != 200:
             snippet = response_text[:500]
-            raise SeriesError(
+            exc = SeriesError(
                 f"HTTP {response.status_code} ao chamar {action}: {snippet}"
             )
+            self._attach_last_exchange_to_exception(exc)
+            raise exc
         return element
 
     def _extract_response_element(self, xml: str, action: str) -> ET.Element:
