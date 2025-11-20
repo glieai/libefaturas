@@ -35,6 +35,130 @@ class CreateSeriesInput:
     data_inicio: date
     num_cert_sw: int | str
     meio_processamento: str
+    _SERIE_MAX_LEN: ClassVar[int] = 35
+    _CODIGOS_TIPO_SERIE: ClassVar[set[str]] = {"N", "F", "R"}
+    _CODIGOS_CLASSE_DOC: ClassVar[set[str]] = {"SI", "MG", "WD", "PY"}
+    _CODIGOS_TIPO_DOC: ClassVar[dict[str, set[str]]] = {
+        "SI": {"FT", "FS", "FR", "ND", "NC", "VD", "TV", "AA", "DA"},
+        "MG": {"GR", "GT", "GA", "GC", "GD"},
+        "WD": {"FO", "NE", "DC", "OR"},
+        "PY": {"RC", "RG", "RE", "CS", "LD", "RA", "RP"},
+    }
+    _CODIGOS_TIPO_DOC_TODOS: ClassVar[set[str]] = set().union(*_CODIGOS_TIPO_DOC.values())
+    _CODIGO_MEIO_PROCESSAMENTO: ClassVar[set[str]] = {"PI", "PF", "OM"}
+
+    def __post_init__(self) -> None:
+        self.serie = self._validate_str(self.serie, "serie", max_length=self._SERIE_MAX_LEN)
+        self.tipo_serie = self._validate_code(
+            self.tipo_serie,
+            "tipo_serie",
+            expected_len=1,
+            allowed=self._CODIGOS_TIPO_SERIE,
+        )
+        self.classe_doc = self._validate_code(
+            self.classe_doc,
+            "classe_doc",
+            expected_len=2,
+            allowed=self._CODIGOS_CLASSE_DOC,
+        )
+        self.tipo_doc = self._validate_tipo_doc(self.tipo_doc, self.classe_doc)
+        self.num_inicial_seq = self._validate_int(
+            self.num_inicial_seq,
+            "num_inicial_seq",
+            min_value=1,
+            max_digits=25,
+        )
+        self.data_inicio = self._validate_date(self.data_inicio, "data_inicio")
+        self.num_cert_sw = self._validate_num_cert_sw(self.num_cert_sw)
+        self.meio_processamento = self._validate_code(
+            self.meio_processamento,
+            "meio_processamento",
+            expected_len=2,
+            allowed=self._CODIGO_MEIO_PROCESSAMENTO,
+        )
+
+    @staticmethod
+    def _validate_str(value: str, field: str, *, max_length: int, min_length: int = 1) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string.")
+        cleaned = value.strip()
+        if len(cleaned) < min_length:
+            raise ValueError(f"{field} must have at least {min_length} characters.")
+        if len(cleaned) > max_length:
+            raise ValueError(f"{field} must have at most {max_length} characters.")
+        return cleaned
+
+    @staticmethod
+    def _validate_code(
+        value: str,
+        field: str,
+        *,
+        expected_len: int,
+        allowed: set[str],
+    ) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{field} must be a string.")
+        cleaned = value.strip().upper()
+        if len(cleaned) != expected_len:
+            raise ValueError(f"{field} must have length {expected_len}.")
+        if cleaned not in allowed:
+            raise ValueError(f"{field} must be one of: {', '.join(sorted(allowed))}.")
+        return cleaned
+
+    def _validate_tipo_doc(self, value: str, classe_doc: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("tipo_doc must be a string.")
+        cleaned = value.strip().upper()
+        if len(cleaned) != 2:
+            raise ValueError("tipo_doc must have length 2.")
+        allowed_for_class = self._CODIGOS_TIPO_DOC.get(classe_doc)
+        if allowed_for_class and cleaned not in allowed_for_class:
+            allowed_txt = ", ".join(sorted(allowed_for_class))
+            raise ValueError(f"tipo_doc must match classe_doc {classe_doc}: {allowed_txt}.")
+        if cleaned not in self._CODIGOS_TIPO_DOC_TODOS:
+            allowed_txt = ", ".join(sorted(self._CODIGOS_TIPO_DOC_TODOS))
+            raise ValueError(f"tipo_doc must be one of: {allowed_txt}.")
+        return cleaned
+
+    @staticmethod
+    def _validate_int(value: Any, field: str, *, min_value: int, max_digits: int) -> int:
+        if isinstance(value, bool) or value is None:
+            raise ValueError(f"{field} must be an integer.")
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field} must be an integer.") from exc
+        if number < min_value:
+            raise ValueError(f"{field} must be >= {min_value}.")
+        if len(str(abs(number))) > max_digits:
+            raise ValueError(f"{field} must have at most {max_digits} digits.")
+        return number
+
+    @staticmethod
+    def _validate_date(value: Any, field: str) -> date:
+        if isinstance(value, datetime):
+            return value.date()
+        if not isinstance(value, date):
+            raise ValueError(f"{field} must be a date.")
+        return value
+
+    def _validate_num_cert_sw(self, value: int | str) -> str | int:
+        if isinstance(value, bool) or value is None:
+            raise ValueError("num_cert_sw must be an integer with up to 4 digits.")
+        if isinstance(value, int):
+            if value < 0:
+                raise ValueError("num_cert_sw must be >= 0.")
+            if len(str(value)) > 4:
+                raise ValueError("num_cert_sw must have at most 4 digits.")
+            return value
+        if not isinstance(value, str):
+            raise ValueError("num_cert_sw must be an int or str of digits.")
+        cleaned = value.strip()
+        if not cleaned.isdigit():
+            raise ValueError("num_cert_sw must contain only digits.")
+        if len(cleaned) > 4:
+            raise ValueError("num_cert_sw must have at most 4 digits.")
+        return cleaned
 
 
 @dataclass
@@ -45,13 +169,67 @@ class FinalizeSeriesInput:
     codigo_validacao: str
     seq_ultimo_doc_emitido: int
     justificacao: Optional[str] = None
+    _COD_VALIDACAO_LEN: ClassVar[int] = 8
+    _JUSTIFICACAO_MAX_LEN: ClassVar[int] = 4000
+    _CODIGOS_CLASSE_DOC: ClassVar[set[str]] = CreateSeriesInput._CODIGOS_CLASSE_DOC
+    _CODIGOS_TIPO_DOC_TODOS: ClassVar[set[str]] = CreateSeriesInput._CODIGOS_TIPO_DOC_TODOS
+    _CODIGOS_TIPO_DOC: ClassVar[dict[str, set[str]]] = CreateSeriesInput._CODIGOS_TIPO_DOC
 
     def __post_init__(self) -> None:
-        if self.seq_ultimo_doc_emitido < 1:
+        if isinstance(self.seq_ultimo_doc_emitido, bool):
+            raise ValueError("seq_ultimo_doc_emitido must be an integer.")
+        try:
+            seq_int = int(self.seq_ultimo_doc_emitido)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("seq_ultimo_doc_emitido must be an integer.") from exc
+        if seq_int < 1:
             raise ValueError(
                 "seq_ultimo_doc_emitido must be >= 1. "
                 "If a série não teve documentos emitidos, use anularSerie em vez de finalizarSerie."
             )
+        if len(str(abs(seq_int))) > 25:
+            raise ValueError("seq_ultimo_doc_emitido must have at most 25 digits.")
+        self.seq_ultimo_doc_emitido = seq_int
+        self.serie = CreateSeriesInput._validate_str(
+            self.serie,
+            "serie",
+            max_length=CreateSeriesInput._SERIE_MAX_LEN,
+        )
+        self.classe_doc = CreateSeriesInput._validate_code(
+            self.classe_doc,
+            "classe_doc",
+            expected_len=2,
+            allowed=self._CODIGOS_CLASSE_DOC,
+        )
+        self.tipo_doc = self._validate_tipo_doc(self.tipo_doc)
+        if not isinstance(self.codigo_validacao, str):
+            raise ValueError("codigo_validacao must be a string.")
+        cleaned_code = self.codigo_validacao.strip()
+        if len(cleaned_code) != self._COD_VALIDACAO_LEN:
+            raise ValueError("codigo_validacao must have length 8.")
+        self.codigo_validacao = cleaned_code
+        if self.justificacao is not None:
+            if not isinstance(self.justificacao, str):
+                raise ValueError("justificacao must be a string.")
+            cleaned = self.justificacao.strip()
+            if len(cleaned) > self._JUSTIFICACAO_MAX_LEN:
+                raise ValueError("justificacao must have at most 4000 characters.")
+            self.justificacao = cleaned or None
+
+    def _validate_tipo_doc(self, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("tipo_doc must be a string.")
+        cleaned = value.strip().upper()
+        if len(cleaned) != 2:
+            raise ValueError("tipo_doc must have length 2.")
+        allowed_for_class = self._CODIGOS_TIPO_DOC.get(self.classe_doc)
+        if allowed_for_class and cleaned not in allowed_for_class:
+            allowed_txt = ", ".join(sorted(allowed_for_class))
+            raise ValueError(f"tipo_doc must match classe_doc {self.classe_doc}: {allowed_txt}.")
+        if cleaned not in self._CODIGOS_TIPO_DOC_TODOS:
+            allowed_txt = ", ".join(sorted(self._CODIGOS_TIPO_DOC_TODOS))
+            raise ValueError(f"tipo_doc must be one of: {allowed_txt}.")
+        return cleaned
 
 
 @dataclass
@@ -62,6 +240,63 @@ class CancelSeriesInput:
     codigo_validacao: str
     motivo: str
     declaracao_nao_emissao: bool = True
+    _COD_VALIDACAO_LEN: ClassVar[int] = FinalizeSeriesInput._COD_VALIDACAO_LEN
+    _MOTIVO_CANCELAMENTO: ClassVar[set[str]] = {"ER"}
+    _CODIGOS_CLASSE_DOC: ClassVar[set[str]] = CreateSeriesInput._CODIGOS_CLASSE_DOC
+    _CODIGOS_TIPO_DOC_TODOS: ClassVar[set[str]] = CreateSeriesInput._CODIGOS_TIPO_DOC_TODOS
+    _CODIGOS_TIPO_DOC: ClassVar[dict[str, set[str]]] = CreateSeriesInput._CODIGOS_TIPO_DOC
+
+    def __post_init__(self) -> None:
+        self.serie = CreateSeriesInput._validate_str(
+            self.serie,
+            "serie",
+            max_length=CreateSeriesInput._SERIE_MAX_LEN,
+        )
+        self.classe_doc = CreateSeriesInput._validate_code(
+            self.classe_doc,
+            "classe_doc",
+            expected_len=2,
+            allowed=self._CODIGOS_CLASSE_DOC,
+        )
+        self.tipo_doc = self._validate_tipo_doc(self.tipo_doc)
+        self.codigo_validacao = self._validate_codigo_validacao(self.codigo_validacao)
+        self.motivo = self._validate_motivo(self.motivo)
+        if not isinstance(self.declaracao_nao_emissao, bool):
+            raise ValueError("declaracao_nao_emissao must be a boolean.")
+
+    def _validate_codigo_validacao(self, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("codigo_validacao must be a string.")
+        cleaned = value.strip()
+        if len(cleaned) != self._COD_VALIDACAO_LEN:
+            raise ValueError("codigo_validacao must have length 8.")
+        return cleaned
+
+    def _validate_motivo(self, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("motivo must be a string.")
+        cleaned = value.strip().upper()
+        if len(cleaned) != 2:
+            raise ValueError("motivo must have length 2.")
+        if cleaned not in self._MOTIVO_CANCELAMENTO:
+            allowed_txt = ", ".join(sorted(self._MOTIVO_CANCELAMENTO))
+            raise ValueError(f"motivo must be one of: {allowed_txt}.")
+        return cleaned
+
+    def _validate_tipo_doc(self, value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("tipo_doc must be a string.")
+        cleaned = value.strip().upper()
+        if len(cleaned) != 2:
+            raise ValueError("tipo_doc must have length 2.")
+        allowed_for_class = self._CODIGOS_TIPO_DOC.get(self.classe_doc)
+        if allowed_for_class and cleaned not in allowed_for_class:
+            allowed_txt = ", ".join(sorted(allowed_for_class))
+            raise ValueError(f"tipo_doc must match classe_doc {self.classe_doc}: {allowed_txt}.")
+        if cleaned not in self._CODIGOS_TIPO_DOC_TODOS:
+            allowed_txt = ", ".join(sorted(self._CODIGOS_TIPO_DOC_TODOS))
+            raise ValueError(f"tipo_doc must be one of: {allowed_txt}.")
+        return cleaned
 
 
 @dataclass
