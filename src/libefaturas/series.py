@@ -46,6 +46,13 @@ class FinalizeSeriesInput:
     seq_ultimo_doc_emitido: int
     justificacao: Optional[str] = None
 
+    def __post_init__(self) -> None:
+        if self.seq_ultimo_doc_emitido < 1:
+            raise ValueError(
+                "seq_ultimo_doc_emitido must be >= 1. "
+                "If a série não teve documentos emitidos, use anularSerie em vez de finalizarSerie."
+            )
+
 
 @dataclass
 class CancelSeriesInput:
