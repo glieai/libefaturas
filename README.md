@@ -127,50 +127,56 @@ print(cancel.result.message)
 
 ## 3. Comunicação de faturas, trabalhos e pagamentos (FatcoreWS)
 
-O serviço expõe nove operações (Register/Change/Delete para Invoice, Work e Payment). Cada uma recebe um dataclass que espelha o payload do WSDL.
+O serviço expõe nove operações (Register/Change/Delete para Invoice, Work e Payment). Cada uma recebe um dataclass que espelha o payload do WSDL e valida comprimentos, enums, formatos e ranges antes de serializar para XML. Podes continuar a passar dicionários, mas eles são convertidos para os dataclasses e validados antes do envio (erros levantam `PayloadValidationError`).
 
 ```python
 from datetime import date, datetime
+from decimal import Decimal
 from libefaturas import FaturasService
-from libefaturas.faturas import ChannelInfo, RegisterInvoiceInput
+from libefaturas.faturas import (
+    ChannelInfo,
+    DocumentTotals,
+    InvoiceData,
+    InvoiceLineSummary,
+    InvoiceStatus,
+    RegisterInvoiceInput,
+    Tax,
+)
 
-fatcore = FaturasService(client)
+fatcore = FaturasService(client, validate_xml=True)  # valida XML vs XSD se instalares 'libefaturas[validation]'
 
-invoice_payload = {
-    "InvoiceNo": "FT A/2024/1",
-    "ATCUD": "ATCUD-EXEMPLO",
-    "InvoiceDate": date(2024, 1, 15),
-    "InvoiceType": "FT",
-    "SelfBillingIndicator": 0,
-    "CustomerTaxID": "999999990",
-    "CustomerTaxIDCountry": "PT",
-    "DocumentStatus": {
-        "InvoiceStatus": "N",               # conforme Tabela 4.2. do WSDL
-        "InvoiceStatusDate": datetime.now(),
-    },
-    "HashCharacters": "XYZ123",
-    "CashVATSchemeIndicator": 0,
-    "PaperLessIndicator": 1,
-    "SystemEntryDate": datetime.now(),
-    "LineSummary": [
-        {
-            "TaxPointDate": date(2024, 1, 15),
-            "DebitCreditIndicator": "D",
-            "TotalTaxBase": "100.00",
-            "Tax": {
-                "TaxType": "IVA",
-                "TaxCountryRegion": "PT",
-                "TaxCode": "NOR",
-                "TaxPercentage": "23.00",
-            },
-        }
+invoice = InvoiceData(
+    invoice_no="FT A/2024/1",
+    atcud="ATCUD-EXEMPLO",
+    invoice_date=date(2024, 1, 15),
+    invoice_type="FT",
+    self_billing_indicator=0,
+    customer_tax_id="999999990",
+    customer_tax_id_country="PT",
+    document_status=InvoiceStatus(invoice_status="N", invoice_status_date=datetime.now()),
+    hash_characters="ABCD",
+    cash_vat_scheme_indicator=0,
+    paperless_indicator=1,
+    system_entry_date=datetime.now(),
+    line_summary=[
+        InvoiceLineSummary(
+            tax_point_date=date(2024, 1, 15),
+            debit_credit_indicator="D",
+            total_tax_base=Decimal("100.00"),
+            tax=Tax(
+                tax_type="IVA",
+                tax_country_region="PT",
+                tax_code="NOR",
+                tax_percentage=Decimal("23.00"),
+            ),
+        )
     ],
-    "DocumentTotals": {
-        "TaxPayable": "23.00",
-        "NetTotal": "100.00",
-        "GrossTotal": "123.00",
-    },
-}
+    document_totals=DocumentTotals(
+        tax_payable=Decimal("23.00"),
+        net_total=Decimal("100.00"),
+        gross_total=Decimal("123.00"),
+    ),
+)
 
 response = fatcore.register_invoice(
     RegisterInvoiceInput(
@@ -179,7 +185,7 @@ response = fatcore.register_invoice(
         tax_registration_number="599999993",
         tax_entity="Global",
         software_certificate_number=9999,
-        invoice_data=invoice_payload,
+        invoice_data=invoice,
         canal_registo=ChannelInfo(sistema="MinhaApp", versao="1.0.0"),
     )
 )
@@ -189,7 +195,7 @@ if not response.ok:
 print("Fatura comunicada:", response.data_operacao)
 ```
 
-Outros dataclasses (`ChangeInvoiceStatusInput`, `DeleteInvoiceInput`, `RegisterWorkInput`, etc.) seguem o mesmo padrão. Podes passar dicionários, dataclasses ou listas aninhadas e o `FaturasService` trata da serialização em XML literal conforme o WSDL.
+Outros dataclasses (`ChangeInvoiceStatusInput`, `DeleteInvoiceInput`, `RegisterWorkInput`, etc.) seguem o mesmo padrão. Se preferires continuar a enviar dicionários, eles são transformados e validados automaticamente antes da serialização.
 
 ---
 
@@ -198,6 +204,7 @@ Outros dataclasses (`ChangeInvoiceStatusInput`, `DeleteInvoiceInput`, `RegisterW
 - `test_connection(service="series")` ou `test_connection(service="faturas")` para validar certificados, UsernameToken e endpoint antes de chamar operações de negócio.
 - O `OperationResponse` devolvido pelas operações do FatcoreWS inclui `codigo_resposta`, `mensagem` e `data_operacao`. Se `codigo_resposta` for diferente de zero, a mensagem costuma explicar o erro (por exemplo série inexistente, ATCUD inválido, etc.).
 - As operações de séries devolvem `OperationResult` com o mesmo conceito de código/mensagem.
+- Se quiseres validar o XML gerado face ao XSD oficial ativa `FaturasService(..., validate_xml=True)` e instala o extra `pip install "libefaturas[validation]"`.
 
 ---
 
