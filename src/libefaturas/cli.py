@@ -6,7 +6,7 @@ import argparse
 import getpass
 import sys
 
-from .client import test_connection
+from .client import EFaturasClient
 
 __all__ = ["main"]
 
@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> None:
 
     password = args.password or getpass.getpass("Senha do Portal das Finanças: ")
 
-    result = test_connection(
+    client = EFaturasClient(
         username=args.username,
         password=password,
         public_key_path=args.public_key,
@@ -81,33 +81,37 @@ def main(argv: list[str] | None = None) -> None:
         client_key_path=args.client_key,
         ca_cert_path=args.ca_cert,
         environment=args.env,
-        endpoint=args.endpoint,
-        service=args.service,
+        faturas_endpoint=args.endpoint if args.service == "faturas" else None,
+        series_endpoint=args.endpoint if args.service == "series" else None,
     )
 
-    print("[1] UsernameToken:", "OK" if result["username_token_ok"] else "FALHOU")
-    print("[2] TLS/HTTP:", "OK" if result["tls_ok"] else "FALHOU")
+    result = client.test_connection(service=args.service)
+    details = result.data or {}
 
-    if result["http_status"] is not None:
-        print(f"[3] HTTP status: {result['http_status']}")
+    print("[1] UsernameToken:", "OK" if details.get("username_token_ok") else "FALHOU")
+    print("[2] TLS/HTTP:", "OK" if details.get("tls_ok") else "FALHOU")
 
-    if result["soap_fault_code"] or result["soap_fault_string"]:
+    if details.get("http_status") is not None:
+        print(f"[3] HTTP status: {details['http_status']}")
+
+    if details.get("soap_fault_code") or details.get("soap_fault_string"):
         print("[4] SOAP Fault detectado:")
-        if result["soap_fault_code"]:
-            print(f"    faultcode: {result['soap_fault_code']}")
-        if result["soap_fault_string"]:
-            print(f"    faultstring: {result['soap_fault_string']}")
+        if details.get("soap_fault_code"):
+            print(f"    faultcode: {details['soap_fault_code']}")
+        if details.get("soap_fault_string"):
+            print(f"    faultstring: {details['soap_fault_string']}")
     else:
         print("[4] SOAP Fault: nenhum Fault detetado (para o body enviado)")
 
-    if result["error"]:
-        print(f"[ERRO] {result['error']}")
+    if details.get("error"):
+        print(f"[ERRO] {details['error']}")
+    if result.message:
+        print(f"[INFO] {result.message}")
 
-    if result["raw_response_snippet"]:
+    if details.get("raw_response_snippet"):
         print("\n[RAW RESPONSE - primeiros 1000 bytes]")
-        print(result["raw_response_snippet"])
+        print(details["raw_response_snippet"])
 
-    if result["username_token_ok"] and result["tls_ok"]:
+    if result.ok:
         sys.exit(0)
     sys.exit(1)
-

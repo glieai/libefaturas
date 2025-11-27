@@ -1,33 +1,11 @@
-"""API pública exposta pelo pacote ``libefaturas``."""
+"""API pública e estável do pacote ``libefaturas``.
+
+O módulo raiz expõe apenas a interface de alto nível (`EFaturasClient` e
+`EFaturasResult`) e a versão do pacote. Todo o resto (serviços SOAP, payloads
+ou dataclasses internas) é considerado detalhe de implementação.
+"""
 
 from .__about__ import __version__
-from .client import EFaturasClient, test_connection
-from .security import EFaturasCredentials, UsernameToken
-from .faturas import OperationResponse, FaturasError, FaturasService
-from .series import (
-    OperationResult,
-    Series,
-    SeriesError,
-    SeriesFilter,
-    SeriesListResult,
-    SeriesOperationResult,
-    SeriesService,
-)
+from .client import EFaturasClient, EFaturasResult
 
-__all__ = [
-    "__version__",
-    "EFaturasClient",
-    "test_connection",
-    "EFaturasCredentials",
-    "UsernameToken",
-    "OperationResponse",
-    "FaturasError",
-    "FaturasService",
-    "Series",
-    "SeriesFilter",
-    "OperationResult",
-    "SeriesOperationResult",
-    "SeriesListResult",
-    "SeriesError",
-    "SeriesService",
-]
+__all__ = ["__version__", "EFaturasClient", "EFaturasResult"]

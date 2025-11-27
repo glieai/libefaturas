@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -10,7 +10,7 @@ from typing import Any, Mapping, Optional, Sequence
 import xml.etree.ElementTree as ET
 import re
 
-from .client import EFaturasClient
+from .client import _WSClient
 
 
 __all__ = [
@@ -187,6 +187,18 @@ def _coerce_dataclass(value: Any, cls: type, field: str):
     if isinstance(value, cls):
         return value
     if isinstance(value, Mapping):
+        try:
+            candidate_fields = [item.name for item in fields(cls) if item.init]
+        except TypeError:
+            candidate_fields = []
+        if candidate_fields and any(key in value for key in candidate_fields):
+            try:
+                kwargs = {name: value.get(name) for name in candidate_fields}
+                return cls(**kwargs)
+            except PayloadValidationError:
+                raise
+            except Exception:
+                pass
         return cls.from_mapping(value)
     raise PayloadValidationError(f"{field} deve ser {cls.__name__} ou mapping.")
 
@@ -1615,7 +1627,7 @@ class FaturasService:
 
     def __init__(
         self,
-        client: EFaturasClient,
+        client: _WSClient,
         *,
         endpoint: Optional[str] = None,
         validate_xml: bool = False,

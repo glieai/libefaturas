@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Optional
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
 
-from .client import EFaturasClient
+from .client import _WSClient
 
 
 __all__ = [
@@ -372,7 +372,7 @@ class SeriesService:
 
     def __init__(
         self,
-        client: EFaturasClient,
+        client: _WSClient,
         *,
         endpoint: Optional[str] = None,
     ) -> None:
