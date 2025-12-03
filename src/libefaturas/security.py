@@ -213,7 +213,7 @@ def build_security_header_xml(token: UsernameToken) -> str:
 
 def _load_rsa_private_key(
     private_key_pem: bytes | str,
-    password: Optional[bytes] = None,
+    password: Optional[bytes | str] = None,
 ) -> rsa.RSAPrivateKey:
     """
     Carrega uma chave privada RSA (formato PEM) a partir de:
@@ -225,6 +225,8 @@ def _load_rsa_private_key(
     """
     if isinstance(private_key_pem, str):
         private_key_pem = private_key_pem.encode("utf-8")
+    if isinstance(password, str):
+        password = password.encode("utf-8")
 
     key = serialization.load_pem_private_key(
         private_key_pem,
@@ -235,14 +237,44 @@ def _load_rsa_private_key(
     return key
 
 
+def _load_saft_private_key(
+    private_key_pem: bytes | str | None = None,
+    password: Optional[bytes | str] = None,
+    saft_private_key_path: Optional[str] = None,
+    saft_private_key_password: Optional[bytes | str] = None,
+) -> rsa.RSAPrivateKey:
+    """
+    Determina e carrega a chave privada a usar na assinatura SAF-T.
+
+    Preferência:
+      - se saft_private_key_path for fornecido, lê desse ficheiro e usa
+        saft_private_key_password (se existir);
+      - caso contrário, usa private_key_pem/password (compatibilidade retroativa).
+    """
+    key_material = private_key_pem
+    key_password = password
+    if saft_private_key_path:
+        try:
+            with open(saft_private_key_path, "rb") as handle:
+                key_material = handle.read()
+        except OSError as exc:  # noqa: BLE001
+            raise ValueError(f"Não foi possível ler a chave privada SAF-T ({saft_private_key_path}): {exc}") from exc
+        key_password = saft_private_key_password
+    if not key_material:
+        raise ValueError("Chave privada SAF-T não fornecida.")
+    return _load_rsa_private_key(key_material, password=key_password)
+
+
 def gerar_hash_fatura(
     invoice_date: str,
     system_entry_date: str,
     invoice_no: str,
     gross_total: str,
     previous_hash: Optional[str],
-    private_key_pem: bytes | str,
-    password: Optional[bytes] = None,
+    private_key_pem: bytes | str | None = None,
+    password: Optional[bytes | str] = None,
+    saft_private_key_path: Optional[str] = None,
+    saft_private_key_password: Optional[bytes | str] = None,
 ) -> str:
     """
     Gera o Hash (assinatura) de uma fatura segundo as Regras Técnicas da AT.
@@ -256,6 +288,9 @@ def gerar_hash_fatura(
                                                          sem separador de milhares)
       - previous_hash     -> Hash do documento anterior da mesma série (4.1.4.3),
                              "" / None se for o primeiro documento da série ou do exercício.
+      - saft_private_key_path -> caminho para a chave privada RSA 1024 dedicada ao SAF-T (opcional)
+      - saft_private_key_password -> password da chave SAF-T (opcional)
+      - private_key_pem/password -> ainda suportados para compatibilidade
 
     Texto a assinar (exactamente o que vai ao RSA+SHA1), em UTF-8, é:
       "{InvoiceDate};{SystemEntryDate};{InvoiceNo};{GrossTotal};{PreviousHash}"
@@ -271,7 +306,12 @@ def gerar_hash_fatura(
 
     message = f"{invoice_date};{system_entry_date};{invoice_no};{gross_total};{prev}"
 
-    private_key = _load_rsa_private_key(private_key_pem, password=password)
+    private_key = _load_saft_private_key(
+        private_key_pem=private_key_pem,
+        password=password,
+        saft_private_key_path=saft_private_key_path,
+        saft_private_key_password=saft_private_key_password,
+    )
 
     signature = private_key.sign(
         message.encode("utf-8"),
