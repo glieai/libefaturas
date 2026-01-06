@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, TYPE_CHECKING
@@ -10,6 +11,12 @@ import xml.etree.ElementTree as ET
 import requests
 
 from .config import ENDPOINTS, Environment
+from .exceptions import (
+    EFaturasAuthError,
+    EFaturasConnectionError,
+    EFaturasSOAPError,
+)
+from .retry import RetryConfig, retry_request
 from .security import (
     EFaturasCredentials,
     build_security_header_xml,
@@ -19,6 +26,8 @@ from .security import (
 if TYPE_CHECKING:
     from .faturas import OperationResponse
     from .series import SeriesListResult, SeriesOperationResult
+
+_logger = logging.getLogger(__name__)
 
 __all__ = ["_WSClient", "EFaturasClient", "EFaturasResult", "test_connection"]
 
@@ -74,6 +83,7 @@ class _WSClient:
         ca_cert_path: Optional[str | Path] = None,
         environment: Environment | str = "test",
         timeout: int | float = 30,
+        retry_config: Optional[RetryConfig] = None,
     ) -> None:
         self.username = username
         self.password = password
@@ -82,6 +92,7 @@ class _WSClient:
         self.client_key_path = str(client_key_path) if client_key_path is not None else None
         self.ca_cert_path = str(ca_cert_path) if ca_cert_path is not None else None
         self.timeout = timeout
+        self.retry_config = retry_config  # None = use default retry config
         if isinstance(environment, Environment):
             self.environment = environment
         else:
@@ -108,6 +119,7 @@ class _WSClient:
         service: str,
         body_xml: str,
         endpoint: Optional[str] = None,
+        use_retry: bool = True,
     ) -> requests.Response:
         envelope = self.build_envelope_xml(body_xml)
         self._last_request_xml = envelope
@@ -118,18 +130,33 @@ class _WSClient:
             cert = self.client_cert_path
 
         verify = self.ca_cert_path if self.ca_cert_path else True
-
         effective_endpoint = self._resolve_endpoint(service, endpoint)
 
-        response = requests.post(
-            effective_endpoint,
-            data=envelope.encode("utf-8"),
-            headers={"Content-Type": "text/xml; charset=utf-8"},
-            cert=cert,
-            verify=verify,
-            timeout=self.timeout,
-        )
-        return response
+        def _do_request() -> requests.Response:
+            return requests.post(
+                effective_endpoint,
+                data=envelope.encode("utf-8"),
+                headers={"Content-Type": "text/xml; charset=utf-8"},
+                cert=cert,
+                verify=verify,
+                timeout=self.timeout,
+            )
+
+        if use_retry:
+            return retry_request(
+                _do_request,
+                config=self.retry_config,
+                endpoint=effective_endpoint,
+            )
+        else:
+            try:
+                return _do_request()
+            except requests.RequestException as exc:
+                raise EFaturasConnectionError(
+                    f"Erro de ligação: {exc}",
+                    endpoint=effective_endpoint,
+                    original_error=exc,
+                ) from exc
 
     def build_envelope_xml(self, body_xml: str) -> str:
         return (
