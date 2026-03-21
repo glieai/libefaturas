@@ -3,12 +3,28 @@ name: Tests
 on:
   push:
     branches: [main, master, develop]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "CHANGELOG.md"
+      - "examples/**"
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "CHANGELOG.md"
+      - "examples/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +56,7 @@ jobs:
           fail_ci_if_error: false
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +75,7 @@ jobs:
           ruff check src/
 
   type-check:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
 
